@@ -338,19 +338,21 @@ module Datadog
       :DOUBLE_COLON, :UNDERSCORE
 
     def escape_event_content(msg)
-      msg.gsub NEW_LINE, ESC_NEW_LINE
+      msg.gsub!(NEW_LINE, ESC_NEW_LINE) || msg
     end
 
     def escape_tag_content(tag)
-      remove_pipes(tag).gsub COMMA, BLANK
+      tag = remove_pipes(tag)
+      tag.gsub!(COMMA, BLANK) || tag
     end
 
     def remove_pipes(msg)
-      msg.gsub PIPE, BLANK
+      msg.gsub!(PIPE, BLANK) || msg
     end
 
     def escape_service_check_message(msg)
-      escape_event_content(msg).gsub('m:'.freeze, 'm\:'.freeze)
+      msg = escape_event_content(msg)
+      msg.gsub!('m:'.freeze, 'm\:'.freeze) || msg
     end
 
     def time_since(stat, start, opts)
@@ -361,7 +363,10 @@ module Datadog
       sample_rate = opts[:sample_rate] || 1
       if sample_rate == 1 or rand < sample_rate
         # Replace Ruby module scoping with '.' and reserved chars (: | @) with underscores.
-        stat = stat.to_s.gsub(DOUBLE_COLON, DOT).tr(':|@'.freeze, UNDERSCORE)
+        stat = stat.to_s
+        stat.gsub!(DOUBLE_COLON, DOT)
+        stat.tr!(':|@'.freeze, UNDERSCORE)
+
         rate = "|@#{sample_rate}" unless sample_rate == 1
         ts = (tags || []) + (opts[:tags] || []).map {|tag| escape_tag_content(tag)}
         tags = "|##{ts.join(COMMA)}" unless ts.empty?
