@@ -25,12 +25,12 @@ module Datadog
     # Create a dictionary to assign a key to every parameter's name, except for tags (treated differently)
     # Goal: Simple and fast to add some other parameters
     OPTS_KEYS = {
-      :date_happened     => :d,
-      :hostname          => :h,
-      :aggregation_key   => :k,
-      :priority          => :p,
-      :source_type_name  => :s,
-      :alert_type        => :t,
+      :date_happened     => 'd'.freeze,
+      :hostname          => 'h'.freeze,
+      :aggregation_key   => 'k'.freeze,
+      :priority          => 'p'.freeze,
+      :source_type_name  => 's'.freeze,
+      :alert_type        => 't'.freeze,
     }
 
     # Service check options
@@ -306,27 +306,40 @@ module Datadog
     end
 
     def format_event(title, text, opts={})
+      event_string_data = ''
+      event_string_data << '_e{'.freeze
       escaped_title = escape_event_content(title)
       escaped_text = escape_event_content(text)
-      event_string_data = "_e{#{escaped_title.length},#{escaped_text.length}}:#{escaped_title}|#{escaped_text}"
+      event_string_data << escaped_title.length.to_s
+      event_string_data << escaped_text.length.to_s
+      event_string_data << '}'.freeze
+      event_string_data << COLON
+      event_string_data << escaped_title
+      event_string_data << PIPE
+      event_string_data << escaped_text
 
       # We construct the string to be sent by adding '|key:value' parts to it when needed
       # All pipes ('|') in the metadata are removed. Title and Text can keep theirs
       OPTS_KEYS.each do |key, shorthand_key|
         if key != :tags && opts[key]
-          value = remove_pipes(opts[key])
-          event_string_data << "|#{shorthand_key}:#{value}"
+          event_string_data << PIPE
+          event_string_data << shorthand_key
+          event_string_data << COLON
+          event_string_data << remove_pipes(opts[key.to_sym])
         end
       end
 
       # Tags are joined and added as last part to the string to be sent
-      full_tags = (tags + (opts[:tags] || [])).map {|tag| escape_tag_content(tag) }
+      full_tags = (tags + opts[:tags].to_a).map {|tag| escape_tag_content(tag) }
       unless full_tags.empty?
-        event_string_data << "|##{full_tags.join(COMMA)}"
+        event_string_data << PIPE
+        event_string_data << HASH_TAG
+        event_string_data << full_tags.join(COMMA)
       end
 
       raise "Event #{title} payload is too big (more that 8KB), event discarded" if event_string_data.length > 8192 # 8 * 1024 = 8192
-      return event_string_data
+
+      event_string_data
     end
 
     private
@@ -339,6 +352,8 @@ module Datadog
     DOT = ".".freeze
     DOUBLE_COLON = "::".freeze
     UNDERSCORE = "_".freeze
+    COLON = ":".freeze
+    HASH_TAG = "#".freeze
 
     private_constant :NEW_LINE, :ESC_NEW_LINE, :COMMA, :BLANK, :PIPE, :DOT,
       :DOUBLE_COLON, :UNDERSCORE
@@ -377,7 +392,7 @@ module Datadog
         stat.tr!(':|@'.freeze, UNDERSCORE)
 
         full_stat << stat
-        full_stat << ':'.freeze
+        full_stat << COLON
         full_stat << delta.to_s
         full_stat << PIPE
         full_stat << type
@@ -391,7 +406,7 @@ module Datadog
         ts = tags.to_a + opts[:tags].to_a.map {|tag| escape_tag_content(tag)}
         unless ts.empty?
           full_stat << PIPE
-          full_stat << '#'.freeze
+          full_stat << HASH_TAG
           full_stat << ts.join(COMMA)
         end
 
