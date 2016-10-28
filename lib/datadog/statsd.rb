@@ -244,22 +244,35 @@ module Datadog
     end
 
     def format_service_check(name, status, opts={})
-      sc_string = "_sc|#{name}|#{status}"
+      sc_string = ''
+      sc_string << '_sc'.freeze
+      sc_string << PIPE
+      sc_string << name
+      sc_string << PIPE
+      sc_string << status.to_s
 
       SC_OPT_KEYS.each do |key, shorthand_key|
         next unless opts[key]
 
         if key == :tags
           tags = opts[:tags].map {|tag| escape_tag_content(tag) }
-          tags = "#{tags.join(COMMA)}" unless tags.empty?
-          sc_string << "|##{tags}"
+          unless tags.empty?
+            sc_string << PIPE
+            sc_string << HASH_TAG
+            sc_string << tags.join(COMMA)
+          end
         elsif key == :message
           message = remove_pipes(opts[:message])
           escaped_message = escape_service_check_message(message)
-          sc_string << "|m:#{escaped_message}"
+          sc_string << PIPE
+          sc_string << 'm'.freeze
+          sc_string << COLON
+          sc_string << escaped_message
         else
           value = remove_pipes(opts[key])
-          sc_string << "|#{shorthand_key}#{value}"
+          sc_string << PIPE
+          sc_string << shorthand_key
+          sc_string << value
         end
       end
       return sc_string
