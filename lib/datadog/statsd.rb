@@ -25,12 +25,12 @@ module Datadog
     # Create a dictionary to assign a key to every parameter's name, except for tags (treated differently)
     # Goal: Simple and fast to add some other parameters
     OPTS_KEYS = {
-      :date_happened     => :d,
-      :hostname          => :h,
-      :aggregation_key   => :k,
-      :priority          => :p,
-      :source_type_name  => :s,
-      :alert_type        => :t,
+      :date_happened     => 'd'.freeze,
+      :hostname          => 'h'.freeze,
+      :aggregation_key   => 'k'.freeze,
+      :priority          => 'p'.freeze,
+      :source_type_name  => 's'.freeze,
+      :alert_type        => 't'.freeze,
     }
 
     # Service check options
@@ -45,6 +45,12 @@ module Datadog
     WARNING   = 1
     CRITICAL  = 2
     UNKNOWN   = 3
+
+    COUNTER_TYPE = 'c'.freeze
+    GAUGE_TYPE = 'g'.freeze
+    HISTOGRAM_TYPE = 'h'.freeze
+    TIMING_TYPE = 'ms'.freeze
+    SET_TYPE = 's'.freeze
 
     # A namespace to prepend to all statsd calls. Defaults to no namespace.
     attr_reader :namespace
@@ -141,7 +147,7 @@ module Datadog
     # @option opts [Numeric] :sample_rate sample rate, 1 for always
     # @option opts [Array<String>] :tags An array of tags
     def count(stat, count, opts={})
-      send_stats stat, count, :c, opts
+      send_stats stat, count, COUNTER_TYPE, opts
     end
 
     # Sends an arbitary gauge value for the given stat to the statsd server.
@@ -158,7 +164,7 @@ module Datadog
     # @example Report the current user count:
     #   $statsd.gauge('user.count', User.count)
     def gauge(stat, value, opts={})
-      send_stats stat, value, :g, opts
+      send_stats stat, value, GAUGE_TYPE, opts
     end
 
     # Sends a value to be tracked as a histogram to the statsd server.
@@ -171,7 +177,7 @@ module Datadog
     # @example Report the current user count:
     #   $statsd.histogram('user.count', User.count)
     def histogram(stat, value, opts={})
-      send_stats stat, value, :h, opts
+      send_stats stat, value, HISTOGRAM_TYPE, opts
     end
 
     # Sends a timing (in ms) for the given stat to the statsd server. The
@@ -185,7 +191,7 @@ module Datadog
     # @option opts [Numeric] :sample_rate sample rate, 1 for always
     # @option opts [Array<String>] :tags An array of tags
     def timing(stat, ms, opts={})
-      send_stats stat, ms, :ms, opts
+      send_stats stat, ms, TIMING_TYPE, opts
     end
 
     # Reports execution time of the provided block using {#timing}.
@@ -217,7 +223,7 @@ module Datadog
     # @example Record a unique visitory by id:
     #   $statsd.set('visitors.uniques', User.id)
     def set(stat, value, opts={})
-      send_stats stat, value, :s, opts
+      send_stats stat, value, SET_TYPE, opts
     end
 
 
@@ -238,22 +244,35 @@ module Datadog
     end
 
     def format_service_check(name, status, opts={})
-      sc_string = "_sc|#{name}|#{status}"
+      sc_string = ''
+      sc_string << '_sc'.freeze
+      sc_string << PIPE
+      sc_string << name
+      sc_string << PIPE
+      sc_string << status.to_s
 
       SC_OPT_KEYS.each do |key, shorthand_key|
         next unless opts[key]
 
         if key == :tags
           tags = opts[:tags].map {|tag| escape_tag_content(tag) }
-          tags = "#{tags.join(COMMA)}" unless tags.empty?
-          sc_string << "|##{tags}"
+          unless tags.empty?
+            sc_string << PIPE
+            sc_string << HASH_TAG
+            sc_string << tags.join(COMMA)
+          end
         elsif key == :message
           message = remove_pipes(opts[:message])
           escaped_message = escape_service_check_message(message)
-          sc_string << "|m:#{escaped_message}"
+          sc_string << PIPE
+          sc_string << 'm'.freeze
+          sc_string << COLON
+          sc_string << escaped_message
         else
           value = remove_pipes(opts[key])
-          sc_string << "|#{shorthand_key}#{value}"
+          sc_string << PIPE
+          sc_string << shorthand_key
+          sc_string << value
         end
       end
       return sc_string
@@ -300,27 +319,40 @@ module Datadog
     end
 
     def format_event(title, text, opts={})
+      event_string_data = ''
+      event_string_data << '_e{'.freeze
       escaped_title = escape_event_content(title)
       escaped_text = escape_event_content(text)
-      event_string_data = "_e{#{escaped_title.length},#{escaped_text.length}}:#{escaped_title}|#{escaped_text}"
+      event_string_data << escaped_title.length.to_s
+      event_string_data << escaped_text.length.to_s
+      event_string_data << '}'.freeze
+      event_string_data << COLON
+      event_string_data << escaped_title
+      event_string_data << PIPE
+      event_string_data << escaped_text
 
       # We construct the string to be sent by adding '|key:value' parts to it when needed
       # All pipes ('|') in the metadata are removed. Title and Text can keep theirs
       OPTS_KEYS.each do |key, shorthand_key|
         if key != :tags && opts[key]
-          value = remove_pipes(opts[key])
-          event_string_data << "|#{shorthand_key}:#{value}"
+          event_string_data << PIPE
+          event_string_data << shorthand_key
+          event_string_data << COLON
+          event_string_data << remove_pipes(opts[key.to_sym])
         end
       end
 
       # Tags are joined and added as last part to the string to be sent
-      full_tags = (tags + (opts[:tags] || [])).map {|tag| escape_tag_content(tag) }
+      full_tags = (tags + opts[:tags].to_a).map {|tag| escape_tag_content(tag) }
       unless full_tags.empty?
-        event_string_data << "|##{full_tags.join(COMMA)}"
+        event_string_data << PIPE
+        event_string_data << HASH_TAG
+        event_string_data << full_tags.join(COMMA)
       end
 
       raise "Event #{title} payload is too big (more that 8KB), event discarded" if event_string_data.length > 8192 # 8 * 1024 = 8192
-      return event_string_data
+
+      event_string_data
     end
 
     private
@@ -333,24 +365,28 @@ module Datadog
     DOT = ".".freeze
     DOUBLE_COLON = "::".freeze
     UNDERSCORE = "_".freeze
+    COLON = ":".freeze
+    HASH_TAG = "#".freeze
 
     private_constant :NEW_LINE, :ESC_NEW_LINE, :COMMA, :BLANK, :PIPE, :DOT,
       :DOUBLE_COLON, :UNDERSCORE
 
     def escape_event_content(msg)
-      msg.gsub NEW_LINE, ESC_NEW_LINE
+      msg.gsub!(NEW_LINE, ESC_NEW_LINE) || msg
     end
 
     def escape_tag_content(tag)
-      remove_pipes(tag).gsub COMMA, BLANK
+      tag = remove_pipes(tag)
+      tag.gsub!(COMMA, BLANK) || tag
     end
 
     def remove_pipes(msg)
-      msg.gsub PIPE, BLANK
+      msg.gsub!(PIPE, BLANK) || msg
     end
 
     def escape_service_check_message(msg)
-      escape_event_content(msg).gsub('m:'.freeze, 'm\:'.freeze)
+      msg = escape_event_content(msg)
+      msg.gsub!('m:'.freeze, 'm\:'.freeze) || msg
     end
 
     def time_since(stat, start, opts)
@@ -360,12 +396,34 @@ module Datadog
     def send_stats(stat, delta, type, opts={})
       sample_rate = opts[:sample_rate] || 1
       if sample_rate == 1 or rand < sample_rate
+        full_stat = ""
+        full_stat << @prefix if @prefix
+
         # Replace Ruby module scoping with '.' and reserved chars (: | @) with underscores.
-        stat = stat.to_s.gsub(DOUBLE_COLON, DOT).tr(':|@'.freeze, UNDERSCORE)
-        rate = "|@#{sample_rate}" unless sample_rate == 1
-        ts = (tags || []) + (opts[:tags] || []).map {|tag| escape_tag_content(tag)}
-        tags = "|##{ts.join(COMMA)}" unless ts.empty?
-        send_stat "#{@prefix}#{stat}:#{delta}|#{type}#{rate}#{tags}"
+        stat = stat.to_s
+        stat.gsub!(DOUBLE_COLON, DOT)
+        stat.tr!(':|@'.freeze, UNDERSCORE)
+
+        full_stat << stat
+        full_stat << COLON
+        full_stat << delta.to_s
+        full_stat << PIPE
+        full_stat << type
+
+        unless sample_rate == 1
+          full_stat << PIPE
+          full_stat << '@'.freeze
+          full_stat << sample_rate.to_s
+        end
+
+        ts = tags.to_a + opts[:tags].to_a.map {|tag| escape_tag_content(tag)}
+        unless ts.empty?
+          full_stat << PIPE
+          full_stat << HASH_TAG
+          full_stat << ts.join(COMMA)
+        end
+
+        send_stat full_stat
       end
     end
 
